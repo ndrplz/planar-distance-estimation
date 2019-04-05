@@ -66,7 +66,7 @@ def draw_detections(frame: np.ndarray,
                     postprocessed_detections: List[dict],
                     color_palette: List[tuple],
                     dataset: str = 'VOC',
-                    line_thickness: int = 3):
+                    line_thickness: int = 2):
     # todo: add class name
     # todo: add confidence
     if dataset != 'VOC':
@@ -81,4 +81,19 @@ def draw_detections(frame: np.ndarray,
         xmin, ymin, xmax, ymax = map(int, coords)
         frame = cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color,
                               thickness=line_thickness)
+
+        text = d['name']
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        font_thickness = 2
+        (label_w, label_h), baseline = cv2.getTextSize(text, font,
+                                                       fontScale=font_scale,
+                                                       thickness=font_thickness)
+        x_start = xmin - line_thickness // 2
+        frame = cv2.rectangle(frame, (x_start, ymin),
+                              (x_start+label_w, ymin - label_h - baseline),
+                              color=color, thickness=cv2.FILLED)
+        cv2.putText(frame, text, (x_start, ymin - baseline), font, font_scale,
+                    color=(10, 10, 10), thickness=font_thickness,
+                    lineType=cv2.LINE_AA)
     return frame
