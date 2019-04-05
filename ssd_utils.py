@@ -57,6 +57,12 @@ def postprocess_detections(ssd_detections: torch.Tensor,
                 if list_item['name'] not in filter_classes:
                     continue
 
+            # Compute detection midpoint on the ground
+            #  this is the point that will be warped by homography
+            xmin, ymin, xmax, ymax = list_item['coords']
+            ground_mid = xmin + (xmax - xmin) / 2, ymax
+            list_item['ground_mid'] = np.asarray(ground_mid, dtype=float)
+
             output.append(list_item)
 
     return output
@@ -67,8 +73,7 @@ def draw_detections(frame: np.ndarray,
                     color_palette: List[tuple],
                     dataset: str = 'VOC',
                     line_thickness: int = 2):
-    # todo: add class name
-    # todo: add confidence
+
     if dataset != 'VOC':
         raise NotImplementedError('COCO support not implemented yet.')
 
@@ -96,4 +101,10 @@ def draw_detections(frame: np.ndarray,
         cv2.putText(frame, text, (x_start, ymin - baseline), font, font_scale,
                     color=(10, 10, 10), thickness=font_thickness,
                     lineType=cv2.LINE_AA)
+
+        # Draw ground midpoint
+        x, y = map(int, d['ground_mid'] * [w, h])
+        cv2.circle(frame, center=(x, y), radius=5, color=color,
+                   thickness=cv2.FILLED)
+
     return frame
