@@ -14,11 +14,6 @@ from yolo.utils.utils import *
 from yolo_utils import postprocess_yolo_detections
 
 
-# todo: move to argparse
-frames_dir = Path('/media/minotauro/DATA/ai4automotive/frames')
-yolo_weights = '/media/minotauro/DATA/pretrained/yolov3/yolov3.weights'
-
-
 # Trapezoid points considering full resolution (1080x1920)
 h, w = 1080, 1920
 y0, y1 = 550, h - 100
@@ -45,14 +40,15 @@ pix_per_meter = 40
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('frames_dir', type=Path)
+parser.add_argument('yolo_weights', type=str, help='Pre-trained YOLO weights')
 parser.add_argument('--image_folder', type=str, default='data/samples', help='path to dataset')
 parser.add_argument('--config_path', type=str, default='config/yolov3.cfg', help='path to model config file')
-parser.add_argument('--weights_path', type=str, default='weights/yolov3.weights', help='path to weights file')
 parser.add_argument('--class_path', type=str, default='yolo/data/coco.names', help='path to class label file')
 parser.add_argument('--conf_thres', type=float, default=0.7, help='object confidence threshold')
-parser.add_argument('--nms_thres', type=float, default=0.4, help='iou thresshold for non-maximum suppression')
+parser.add_argument('--nms_thres', type=float, default=0.4, help='IoI threshold for non-maximum suppression')
 parser.add_argument('--batch_size', type=int, default=1, help='size of the batches')
-parser.add_argument('--n_cpu', type=int, default=8, help='number of cpu threads to use during batch generation')
+parser.add_argument('--n_cpu', type=int, default=8, help='data loader threads')
 parser.add_argument('--img_size', type=int, default=416, help='size of each image dimension')
 parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
 args = parser.parse_args()
@@ -66,14 +62,14 @@ if __name__ == '__main__':
 
     # Set up model
     model = Darknet(config_path='yolo/config/yolov3.cfg', img_size=args.img_size)
-    model.load_weights(yolo_weights)
+    model.load_weights(args.yolo_weights)
     if args.device == 'cuda':
         model.cuda()
 
     Tensor = torch.cuda.FloatTensor if args.device == 'cuda' else torch.FloatTensor
 
     dataloader = DataLoader(
-        ImageFolder(frames_dir, img_size=args.img_size),
+        ImageFolder(args.frames_dir, img_size=args.img_size),
         batch_size=1, shuffle=False, num_workers=args.n_cpu)
 
     for batch_i, (img_path, input_img) in enumerate(dataloader):
@@ -113,11 +109,9 @@ if __name__ == '__main__':
             warped = cv2.circle(warped, center=o['ground_mid_warped'], radius=9,
                                 color=(255, 255, 255), thickness=cv2.FILLED)
 
-        # Draw distance lines
-        ego_xy = w // 2, h
-        ego_bev_xy = bev_w // 2, bev_h
-
         # Compute distances
+        ego_xy = w // 2, h              # Ego position in frontal view
+        ego_bev_xy = bev_w // 2, bev_h  # Ego position in birdeye view
         for o in output:
             x, y = o['ground_mid_warped']
             delta = [x, y] - np.asarray(ego_bev_xy)
