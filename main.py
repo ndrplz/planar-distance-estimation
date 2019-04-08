@@ -42,7 +42,7 @@ pix_per_meter = 40
 parser = argparse.ArgumentParser()
 parser.add_argument('frames_dir', type=Path)
 parser.add_argument('yolo_weights', type=str, help='Pre-trained YOLO weights')
-parser.add_argument('--image_folder', type=str, default='data/samples', help='path to dataset')
+parser.add_argument('--output_dir', type=Path, default='/tmp/distances')
 parser.add_argument('--config_path', type=str, default='config/yolov3.cfg', help='path to model config file')
 parser.add_argument('--class_path', type=str, default='yolo/data/coco.names', help='path to class label file')
 parser.add_argument('--conf_thres', type=float, default=0.7, help='object confidence threshold')
@@ -116,12 +116,18 @@ if __name__ == '__main__':
         image_show = draw_detections(frame, birdeye, output, name_to_color)
 
         # blend_show = cv2.resize(blend(frame, trapezoid_img), dsize=None, fx=0.5, fy=0.5)
-        warped_show = cv2.resize(birdeye, dsize=None, fx=0.5, fy=0.5)
-        image_show = cv2.resize(image_show, dsize=None, fx=0.5, fy=0.5)
+        resize_f = 0.6
+        warped_show = cv2.resize(birdeye, dsize=None, fx=resize_f, fy=resize_f)
+        image_show = cv2.resize(image_show, dsize=None, fx=resize_f, fy=resize_f)
         blend_show = image_show
 
         ratio = blend_show.shape[0] / warped_show.shape[0]
         warped_show = cv2.resize(warped_show, dsize=None, fx=ratio, fy=ratio)
         cat_show = np.concatenate([blend_show, warped_show], axis=1)
+
+        args.output_dir: Path
+        if not args.output_dir.exists():
+            args.output_dir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(args.output_dir / f'{batch_i:06d}.png'), cat_show)
         cv2.imshow('Output', cat_show)
         cv2.waitKey(1)
