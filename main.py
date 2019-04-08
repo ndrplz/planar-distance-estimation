@@ -1,24 +1,23 @@
+from __future__ import division
+
+import argparse
 from pathlib import Path
 
 import cv2
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
+from torch.utils.data import DataLoader
 
-from ssd.data import VOC_CLASSES as voc_labels
-from ssd.ssd import build_ssd
-from ssd_utils import draw_detections
-from ssd_utils import postprocess_detections
-from ssd_utils import ssd_preprocess
-
-
-def blend(img1, img2, alpha=0.5):
-    beta = 1 - alpha
-    out = np.uint8(img1 * alpha + img2 * beta)
-    return out
+from view_utils import draw_detections
+from view_utils import name_to_color
+from yolo.models import *
+from yolo.utils.datasets import *
+from yolo.utils.utils import *
+from yolo_utils import postprocess_yolo_detections
 
 
+# todo: move to argparse
 frames_dir = Path('/media/minotauro/DATA/ai4automotive/frames')
+yolo_weights = '/media/minotauro/DATA/pretrained/yolov3/yolov3.weights'
+
 
 # Trapezoid points considering full resolution (1080x1920)
 h, w = 1080, 1920
@@ -41,51 +40,65 @@ dst_points = np.asarray([(bev_w//2-200, bev_h),
                          (bev_w//2+200, bev_h)])
 M, mask = cv2.findHomography(trapezoid, dst_points)
 
-r = 1
 
-# todo: class to color dictionary
+pix_per_meter = 40
 
-pix_per_meter = 40  #
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--image_folder', type=str, default='data/samples', help='path to dataset')
+parser.add_argument('--config_path', type=str, default='config/yolov3.cfg', help='path to model config file')
+parser.add_argument('--weights_path', type=str, default='weights/yolov3.weights', help='path to weights file')
+parser.add_argument('--class_path', type=str, default='yolo/data/coco.names', help='path to class label file')
+parser.add_argument('--conf_thres', type=float, default=0.7, help='object confidence threshold')
+parser.add_argument('--nms_thres', type=float, default=0.4, help='iou thresshold for non-maximum suppression')
+parser.add_argument('--batch_size', type=int, default=1, help='size of the batches')
+parser.add_argument('--n_cpu', type=int, default=8, help='number of cpu threads to use during batch generation')
+parser.add_argument('--img_size', type=int, default=416, help='size of each image dimension')
+parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
+args = parser.parse_args()
+print(args)
+
 
 if __name__ == '__main__':
 
     if torch.cuda.is_available():
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    net = build_ssd('test', size=300, num_classes=21)  # initialize SSD
-    net.load_weights('/media/minotauro/DATA/ai4automotive/ssd300_mAP_77.43_v2.pth')
-    if torch.cuda.is_available():
-        net = net.cuda()
-    net.eval()
+    # Set up model
+    model = Darknet(config_path='yolo/config/yolov3.cfg', img_size=args.img_size)
+    model.load_weights(yolo_weights)
+    if args.device == 'cuda':
+        model.cuda()
 
-    for i, f_path in enumerate(sorted(frames_dir.glob('*.jpg'))[::5]):
-        # if i < 2000:
-        #     continue
+    Tensor = torch.cuda.FloatTensor if args.device == 'cuda' else torch.FloatTensor
 
-        # f_path = '/media/minotauro/DATA/ai4automotive/frames/001810.jpg'
-        frame = cv2.imread(str(f_path))
-        frame = cv2.resize(frame, dsize=None, fx=r, fy=r)
-        trapezoid_img = cv2.resize(trapezoid_img, dsize=None, fx=r, fy=r)
+    dataloader = DataLoader(
+        ImageFolder(frames_dir, img_size=args.img_size),
+        batch_size=1, shuffle=False, num_workers=args.n_cpu)
+
+    for batch_i, (img_path, input_img) in enumerate(dataloader):
+
+        frame = cv2.imread(img_path[0])
 
         warped = cv2.warpPerspective(frame, M, (bev_w, bev_h))
 
-        # Preprocess frame and predict
-        x = ssd_preprocess(frame, resize_dim=300)
-
-        if torch.cuda.is_available():
-            x = x.cuda()
-
+        # Get detections
         with torch.no_grad():
-            y = net(x.unsqueeze(0))
-
-        output = postprocess_detections(y, min_confidence=0.2,
-                                        filter_classes=['car', 'person',
-                                                        'bicycle'])
+            input_img = Variable(input_img.type(Tensor))
+            detections = model(input_img)
+            detections = non_max_suppression(detections, 80, args.conf_thres,
+                                             args.nms_thres)
+        if detections is not None:
+            keep_classes = ['car', 'person', 'bicycle', 'truck',
+                            'bus', 'motorbike']
+            output = postprocess_yolo_detections(detections[0],
+                                                 image_shape=frame.shape,
+                                                 input_size=args.img_size,
+                                                 filter_classes=keep_classes)
 
         # Warp midpoints in birdeye view
         for o in output:
-            midpoint = o['ground_mid'] * [w, h]  # from relative to image size
-            midpoint = np.concatenate([midpoint, np.ones(1)])
+            midpoint = np.concatenate([o['ground_mid'], np.ones(1)])
 
             midpoint_warped = M @ midpoint
             midpoint_warped /= midpoint_warped[-1]
@@ -95,9 +108,10 @@ if __name__ == '__main__':
 
             # Draw projected point
             x, y = map(int, midpoint_warped)
+            o['ground_mid_warped'] = (x, y)
 
-            warped = cv2.circle(warped, center=(x, y), radius=5, color=(255, 255, 255),
-                       thickness=cv2.FILLED)
+            warped = cv2.circle(warped, center=o['ground_mid_warped'], radius=9,
+                                color=(255, 255, 255), thickness=cv2.FILLED)
 
         # Draw distance lines
         ego_xy = w // 2, h
@@ -105,37 +119,33 @@ if __name__ == '__main__':
 
         # Compute distances
         for o in output:
-            x, y = map(int, o['ground_mid_warped'])
+            x, y = o['ground_mid_warped']
             delta = [x, y] - np.asarray(ego_bev_xy)
             dist_pix = np.sqrt(np.sum(delta ** 2))
             dist_meter = dist_pix / pix_per_meter
 
             cv2.putText(warped, f'{dist_meter:.02f} m', (x, y), cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=3, color=(255, 255, 255), thickness=3)
+                        fontScale=3, color=(255, 255, 255), thickness=8)
 
-            x, y = map(int, o['ground_mid'] * [w, h])
-            cv2.putText(frame, f'{dist_meter:.02f} m', (x, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, fontScale=2, color=(255, 255, 255), thickness=3)
+            x, y = o['ground_mid']
+            cv2.putText(frame, f'{dist_meter:.02f} m', (x, y + 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.5, color=(255, 255, 255), thickness=3)
 
         # Draw distance lines
         for o in output:
             # Draw distance in ego view
-            x, y = map(int, o['ground_mid'] * [w, h])
-            cv2.line(frame, (x, y), ego_xy, color=(255, 255, 255),
-                     thickness=2)
+            cv2.line(frame, o['ground_mid'], ego_xy,
+                     color=(255, 255, 255), thickness=2)
 
-            x, y = map(int, o['ground_mid_warped'])
-            cv2.line(warped, (x, y), ego_bev_xy, color=(255, 255, 255),
-                     thickness=2)
+            cv2.line(warped, o['ground_mid_warped'], ego_bev_xy,
+                     color=(255, 255, 255), thickness=3)
 
-        palette_rgb = plt.cm.hsv(np.linspace(0, 1, len(voc_labels) + 1)).tolist()
-        palette_bgr = [p[:-1][::-1] for p in palette_rgb]
+        image_show = draw_detections(frame, output, name_to_color)
 
-        image_show = draw_detections(frame, output, palette_bgr)
-
-        blend_show = cv2.resize(blend(frame, trapezoid_img), dsize=None, fx=0.5, fy=0.5)
+        # blend_show = cv2.resize(blend(frame, trapezoid_img), dsize=None, fx=0.5, fy=0.5)
         warped_show = cv2.resize(warped, dsize=None, fx=0.5, fy=0.5)
-        detect_show = cv2.resize(image_show, dsize=None, fx=0.5, fy=0.5)
+        image_show = cv2.resize(image_show, dsize=None, fx=0.5, fy=0.5)
+        blend_show = image_show
 
         ratio = blend_show.shape[0] / warped_show.shape[0]
         warped_show = cv2.resize(warped_show, dsize=None, fx=ratio, fy=ratio)
