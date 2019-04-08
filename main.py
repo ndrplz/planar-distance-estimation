@@ -84,7 +84,7 @@ if __name__ == '__main__':
             detections = model(input_img)
             detections = non_max_suppression(detections, 80, args.conf_thres,
                                              args.nms_thres)
-        if detections is not None:
+        if detections[0] is not None:
             keep_classes = ['car', 'person', 'bicycle', 'truck',
                             'bus', 'motorbike']
             output = postprocess_yolo_detections(detections[0],
@@ -92,42 +92,41 @@ if __name__ == '__main__':
                                                  input_size=args.img_size,
                                                  filter_classes=keep_classes)
 
-        # Warp midpoints in birdeye view
-        for o in output:
-            midpoint = np.concatenate([o['ground_mid'], np.ones(1)])
+            # Warp midpoints in birdeye view
+            for o in output:
+                midpoint = np.concatenate([o['ground_mid'], np.ones(1)])
 
-            midpoint_warped = M @ midpoint
-            midpoint_warped /= midpoint_warped[-1]
-            midpoint_warped = midpoint_warped[:-1]
+                midpoint_warped = M @ midpoint
+                midpoint_warped /= midpoint_warped[-1]
+                midpoint_warped = midpoint_warped[:-1]
 
-            # Store projected points
-            o['ground_mid_warped'] = tuple(int(a) for a in midpoint_warped)
+                # Store projected points
+                o['ground_mid_warped'] = tuple(int(a) for a in midpoint_warped)
 
-        # Exploit the birdeye view to compute distances
-        ego_bev_xy = bev_w // 2, bev_h  # Ego position in birdeye view
-        for o in output:
-            x, y = o['ground_mid_warped']
-            delta = [x, y] - np.asarray(ego_bev_xy)
-            dist_pix = np.sqrt(np.sum(delta ** 2))
+            # Exploit the birdeye view to compute distances
+            ego_bev_xy = bev_w // 2, bev_h  # Ego position in birdeye view
+            for o in output:
+                x, y = o['ground_mid_warped']
+                delta = [x, y] - np.asarray(ego_bev_xy)
+                dist_pix = np.sqrt(np.sum(delta ** 2))
 
-            o['dist_meter'] = dist_pix / pix_per_meter
+                o['dist_meter'] = dist_pix / pix_per_meter
 
-        # Draw bounding boxes, text, lines etc.
-        image_show = draw_detections(frame, birdeye, output, name_to_color)
+            # Draw bounding boxes, text, lines etc.
+            frame = draw_detections(frame, birdeye, output, name_to_color)
 
         # blend_show = cv2.resize(blend(frame, trapezoid_img), dsize=None, fx=0.5, fy=0.5)
         resize_f = 0.6
         warped_show = cv2.resize(birdeye, dsize=None, fx=resize_f, fy=resize_f)
-        image_show = cv2.resize(image_show, dsize=None, fx=resize_f, fy=resize_f)
+        image_show = cv2.resize(frame, dsize=None, fx=resize_f, fy=resize_f)
         blend_show = image_show
 
         ratio = blend_show.shape[0] / warped_show.shape[0]
         warped_show = cv2.resize(warped_show, dsize=None, fx=ratio, fy=ratio)
         cat_show = np.concatenate([blend_show, warped_show], axis=1)
 
-        args.output_dir: Path
         if not args.output_dir.exists():
             args.output_dir.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(args.output_dir / f'{batch_i:06d}.png'), cat_show)
+        cv2.imwrite(str(args.output_dir / f'{batch_i:06d}.jpg'), cat_show)
         cv2.imshow('Output', cat_show)
         cv2.waitKey(1)
