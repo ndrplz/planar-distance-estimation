@@ -76,7 +76,7 @@ if __name__ == '__main__':
 
         frame = cv2.imread(img_path[0])
 
-        warped = cv2.warpPerspective(frame, M, (bev_w, bev_h))
+        birdeye = cv2.warpPerspective(frame, M, (bev_w, bev_h))
 
         # Get detections
         with torch.no_grad():
@@ -100,49 +100,28 @@ if __name__ == '__main__':
             midpoint_warped /= midpoint_warped[-1]
             midpoint_warped = midpoint_warped[:-1]
 
-            o['ground_mid_warped'] = midpoint_warped
+            # Store projected points
+            o['ground_mid_warped'] = tuple(int(a) for a in midpoint_warped)
 
-            # Draw projected point
-            x, y = map(int, midpoint_warped)
-            o['ground_mid_warped'] = (x, y)
-
-            warped = cv2.circle(warped, center=o['ground_mid_warped'], radius=9,
-                                color=(255, 255, 255), thickness=cv2.FILLED)
-
-        # Compute distances
-        ego_xy = w // 2, h              # Ego position in frontal view
+        # Exploit the birdeye view to compute distances
         ego_bev_xy = bev_w // 2, bev_h  # Ego position in birdeye view
         for o in output:
             x, y = o['ground_mid_warped']
             delta = [x, y] - np.asarray(ego_bev_xy)
             dist_pix = np.sqrt(np.sum(delta ** 2))
-            dist_meter = dist_pix / pix_per_meter
 
-            cv2.putText(warped, f'{dist_meter:.02f} m', (x, y), cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=3, color=(255, 255, 255), thickness=8)
+            o['dist_meter'] = dist_pix / pix_per_meter
 
-            x, y = o['ground_mid']
-            cv2.putText(frame, f'{dist_meter:.02f} m', (x, y + 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.5, color=(255, 255, 255), thickness=3)
-
-        # Draw distance lines
-        for o in output:
-            # Draw distance in ego view
-            cv2.line(frame, o['ground_mid'], ego_xy,
-                     color=(255, 255, 255), thickness=2)
-
-            cv2.line(warped, o['ground_mid_warped'], ego_bev_xy,
-                     color=(255, 255, 255), thickness=3)
-
-        image_show = draw_detections(frame, output, name_to_color)
+        # Draw bounding boxes, text, lines etc.
+        image_show = draw_detections(frame, birdeye, output, name_to_color)
 
         # blend_show = cv2.resize(blend(frame, trapezoid_img), dsize=None, fx=0.5, fy=0.5)
-        warped_show = cv2.resize(warped, dsize=None, fx=0.5, fy=0.5)
+        warped_show = cv2.resize(birdeye, dsize=None, fx=0.5, fy=0.5)
         image_show = cv2.resize(image_show, dsize=None, fx=0.5, fy=0.5)
         blend_show = image_show
 
         ratio = blend_show.shape[0] / warped_show.shape[0]
         warped_show = cv2.resize(warped_show, dsize=None, fx=ratio, fy=ratio)
         cat_show = np.concatenate([blend_show, warped_show], axis=1)
-        cv2.imshow('warped', cat_show)
+        cv2.imshow('Output', cat_show)
         cv2.waitKey(1)
