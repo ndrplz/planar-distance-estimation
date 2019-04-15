@@ -2,6 +2,13 @@
 
 This repository accompanies the laboratory practice on **Planar Distance Estimation** for the *AI4Automotive* course at [University of Modena and Reggio Emilia](http://www.international.unimore.it/). Please note that this implementation has only a didactic purpose. 
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=Fk32Pz3LzCQ">
+  <img src="data/teaser.gif"/ alt="Qualitative results" width="75%">
+  </a>
+  <br>Qualitative results. Whole video <a href="https://www.youtube.com/watch?v=Fk32Pz3LzCQ" name="video">here</a>.
+</p>
+
 ## Run the code
 
 The code entry point is `main.py`.
@@ -15,8 +22,10 @@ The PyTorch wrapper to YOLOv3 detector is borrowed from [this](https://github.co
 
 ## Slides
 <p align="center">
-  <img src="data/slide_thumb.png"/ alt="Slides thumbnail" width="25%">
+  <a href="https://drive.google.com/open?id=1J4K731Lu55oCZJVDuA6DzG54dzZRlV-J">
+  <img src="data/slide_thumb.png"/ alt="Slides thumbnail" width="40%">
+  </a>
   <br>
-  <br>Slides of the practice can be downloaded <a href="https://drive.google.com/open?id=1J4K731Lu55oCZJVDuA6DzG54dzZRlV-J" name="p4_code">here</a>.
+  <br>Slides of the practice are available <a href="https://drive.google.com/open?id=1J4K731Lu55oCZJVDuA6DzG54dzZRlV-J" name="slides">here</a>.
 </p>
 
